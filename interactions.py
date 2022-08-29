@@ -236,12 +236,12 @@ def main() :
     model = pickle.load(open('model.sav', 'rb'))
 
     #opens new file to test data
-    path = "C:\\Users\\Aiden\\Downloads\\dyadTest02A-w\\dyadTest02A-w\\rssi_data.json"
+    test_path = "C:\\Users\\Aiden\\Downloads\\dyadTest02A-w\\dyadTest02A-w\\rssi_data.json"
 
-    read_range = 20000
+    test_read_range = 20000
 
     #in case want to test accuracy on new data, for first 2000 seconds
-    new_times = [
+    test_times = [
         (10,32),
         (438,469),
         (532,554),
@@ -251,9 +251,9 @@ def main() :
         (1390,1410)
     ]
 
-    bio_file = open(path, "r")
+    bio_file = open(test_path, "r")
 
-    t = read_watch_data(bio_file, new_times, read_range)
+    t = read_watch_data(bio_file, test_times, test_read_range)
     test_arr = numpy.array(t)
 
     test_model(model, test_arr)
