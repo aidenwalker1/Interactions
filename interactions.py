@@ -1,16 +1,12 @@
 import json
-import datetime
-from random import Random
 import random
 from tokenize import Double
 import numpy
+import pickle
 from sklearn.neural_network import MLPClassifier
-from sklearn.neural_network import MLPRegressor
-
 from sklearn.metrics import classification_report,confusion_matrix
 
 num_features = 6
-
 
 # Import necessary modules
 from sklearn.model_selection import train_test_split
@@ -24,10 +20,10 @@ def read_watch_data(bio_file, times, read_range = 10000) :
     #output list
     bio_test = []
     
-    #data over given seconds
-    rssi_avg_minute = [0] * 60
-    rate_of_change = [0] * 3
-    deviations = [0] * 5
+    #data over given seconds - fills with rssi value of -85
+    rssi_avg_minute = [-85] * 60
+    rate_of_change = [-85] * 3
+    deviations = [-85] * 5
 
     attribute_list = [0] * (num_features + 1)
 
@@ -195,18 +191,33 @@ def test_model(model, test_arr) :
                 print('interaction at ' + str(i*8))
                 can_prompt = False
 
-def main() :
-    random.seed(None)
-
+def form_initial_model(path, times) :
     #how far to read into the rssi data file to train model
     read_range = 8000
-
-    path = "C:\\Users\\Aiden\\Downloads\\dyadTest03A\\dyadTest03A\\rssi_data.json"
 
     bio_file = open(path, "r")
 
     #times where interactions occured - seconds since the start
-    times = [
+   
+    
+    #creates list of training and test data
+    data = read_watch_data(bio_file, times, read_range)
+
+    #creates neural network
+    mlp = train_data(data)
+
+    bio_file.close()
+
+    pickle.dump(mlp, open('model.sav', 'wb'))
+
+def main() :
+    random.seed(None)
+    
+    already_trained = True
+
+    #if want to completely retrain
+    if not already_trained :
+        times = [
                 (13,47),
                 (113,127),
                 (145,159),
@@ -216,19 +227,20 @@ def main() :
                 (2909,2919),
                 (6127,6183),
                 (6391,6417)
-            ]
-    
-    #creates list of training and test data
-    data = read_watch_data(bio_file, times, read_range)
+        ]
 
-    #creates neural network
-    mlp = train_data(data)
+        path = "C:\\Users\\Aiden\\Downloads\\dyadTest03A\\dyadTest03A\\rssi_data.json"
 
-    bio_file.close()
+        form_initial_model(path, times)
+
+    model = pickle.load(open('model.sav', 'rb'))
+
     #opens new file to test data
     path = "C:\\Users\\Aiden\\Downloads\\dyadTest02A-w\\dyadTest02A-w\\rssi_data.json"
 
     read_range = 20000
+
+    #in case want to test accuracy on new data, for first 2000 seconds
     new_times = [
         (10,32),
         (438,469),
@@ -238,11 +250,12 @@ def main() :
         (1096,1121),
         (1390,1410)
     ]
+
     bio_file = open(path, "r")
 
     t = read_watch_data(bio_file, new_times, read_range)
     test_arr = numpy.array(t)
 
-    test_model(mlp, test_arr)
+    test_model(model, test_arr)
 
 main()
