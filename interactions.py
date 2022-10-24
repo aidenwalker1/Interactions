@@ -1,30 +1,18 @@
-from cgi import test
 import json
 import random
-import pandas as pd
-from tokenize import Double
-from turtle import pos
+
 import numpy as np
 import pickle
-from sklearn import preprocessing
+
 from sklearn import metrics
 from sklearn.neural_network import MLPClassifier
-from sklearn.neural_network import MLPRegressor
-from sklearn.metrics import classification_report,confusion_matrix
 from imblearn.over_sampling import SMOTE
-from imblearn.over_sampling import BorderlineSMOTE
 from sklearn import ensemble
-from sklearn import feature_selection
-from sklearn import tree
 from sklearn.model_selection import GridSearchCV
-from sklearn import naive_bayes
-from sklearn.svm import SVC
-from sklearn import cluster
-num_features = 5
+
 import matplotlib.pyplot as plt
 
-# Import necessary modules
-from sklearn.model_selection import train_test_split
+num_features = 5
 
 def read_sensor_data(bio_file, times, read_range = 10000) :
     rssi_current = 0
@@ -41,11 +29,6 @@ def read_sensor_data(bio_file, times, read_range = 10000) :
 
     attribute_list = [0] * (num_features + 1)
 
-    below_85 = [0] * 15
-    total_below_85 = 0
-
-    #calculated data
-    roc = 0 #rate of change
     rssi_avg = 0
     stddev = 0
     
@@ -65,6 +48,7 @@ def read_sensor_data(bio_file, times, read_range = 10000) :
         
         if fields['message_type'] != 'bluetooth_proximity' :
             continue
+
         sensor = fields["sensors"] 
         rssi_current = sensor['peer_bt_rssi']
 
@@ -72,16 +56,12 @@ def read_sensor_data(bio_file, times, read_range = 10000) :
         rssi_avg_minute[i % 20] = rssi_current
         deviations[i % 5] = rssi_current
         rate_of_change[i % 3] = rssi_current
-        below_85[i % 10] = 1 if rssi_current < -85 else 0
-        total_below_85 = below_85.count(1)
 
         #calculates average, rate of change, standard deviation
         rssi_avg = calculate_avg(rssi_avg_minute)
 
         #update times based on current rssi
         (time_60, time_70, time_80) = update_times(rssi_avg, (time_60, time_70, time_80))
-        
-        roc = calculate_roc(rate_of_change)
 
         stddev = calculate_stddev(deviations, rssi_avg)
 
@@ -89,7 +69,7 @@ def read_sensor_data(bio_file, times, read_range = 10000) :
         interaction = interaction_happened(times, i)
         
         #fills attribute list with fields
-        fill_attributes(attribute_list, rssi_current,rssi_avg, stddev, time_60, time_70, time_80, roc, interaction)
+        fill_attributes(attribute_list, rssi_avg, stddev, time_60, time_70, time_80, interaction)
 
         #saves current attribute list
         bio_test.append(attribute_list.copy())
@@ -198,16 +178,6 @@ def calculate_avg(rssi_avg_minute) :
 
     return rssi_avg
 
-#calculates rate of change over 3 seconds
-def calculate_roc(rate_of_change) :
-    roc = 0
-
-    for j in range(0,2) :
-        roc = roc + (rate_of_change[j + 1] - rate_of_change[j])
-    roc = roc / 2
-        
-    return roc
-
 #calculates standard deviation over 5 seconds
 def calculate_stddev(deviations, rssi_avg):
     stddev = 0
@@ -224,16 +194,18 @@ def interaction_happened(times, time) :
 
     return 0
 
-#creates model
-def train_data(bio_train) :
+# trains base model using smote and boosting
+def train_base_model(bio_train) :
     arr = np.array(bio_train)
 
     sm = SMOTE(sampling_strategy='minority')
     
+    # resamples data
     X = arr[:,0:num_features]
     y = arr[:,num_features]
     X, y = sm.fit_resample(X,y)
 
+    # searches for best params for boost, then forms model
     clf = ensemble.AdaBoostClassifier()
     parameters = {
               'n_estimators':[10,25,50,100, 200],
@@ -245,6 +217,7 @@ def train_data(bio_train) :
     
     return grid
 
+# tests model accuracy
 def test_accuracy(model, X, y) :
     predictions = model.predict(X)
     correct_outputs = y
@@ -253,28 +226,31 @@ def test_accuracy(model, X, y) :
     print("TN = %d FP = %d FN = %d TP = %d" % (tn, fp, fn, tp))
     print(metrics.classification_report(correct_outputs, predictions, target_names = ["No interaction", "Interaction"]))
 
+# creates base model
 def form_initial_model(path, times, read_range) :
     bio_file = open(path, "r")
     
-    #creates list of training and test data
+    #creates list of data
     data = read_sensor_data(bio_file, times, read_range)
 
-    #creates neural network
-    model = train_data(data)
+    #creates ensamble model
+    model = train_base_model(data)
 
     bio_file.close()
 
     pickle.dump(model, open('model.sav', 'wb'))
 
+# creates main model
 def form_mlp(data) :
-    X = np.delete(data, num_features, 1)
-    y = data[:,num_features]
+    X = data[:,:num_features+1]
+    y = data[:,num_features+1]
 
     mlp = MLPClassifier(hidden_layer_sizes=(16,8,4),activation='tanh',batch_size=64,solver='adam', max_iter=30000,tol=1e-8)
     
     mlp.fit(X,y)
     pickle.dump(mlp, open('mlpmodel.sav', 'wb'))
 
+# reads data from file and appends base model predictions
 def read_data(path, times, read_range, model) :
     bio_file = open(path, "r")
     data = read_sensor_data(bio_file, times, read_range)
@@ -286,70 +262,46 @@ def read_data(path, times, read_range, model) :
 
     for i in range(0, len(preds)) :
         out = preds[i]
-        newarr.append([out])
+        newarr.append(out)
 
-    arr = np.append(arr, newarr, axis=1)
+    arr = np.insert(arr, num_features,newarr, axis=1)
 
     return arr
 
+# gets both main model and model used to help it
 def form_models(path, read_range, times, already_trained) :
     success = True
     base_model = None
     mlp = None
 
+    # tries to get base model
     try :
         base_model = pickle.load(open('model.sav', 'rb'))
     except :
         success = False
 
+    # trains base model if needed
     if not already_trained or not success:
         form_initial_model(path, times, read_range)
         base_model = pickle.load(open('model.sav', 'rb'))
 
-    data = read_data(path, times, read_range, base_model)
-    data = np.array(data)
     success = True
 
+    # tries to get main model
     try :
         mlp = pickle.load(open('mlpmodel.sav', 'rb'))
     except :
         success = False
 
+    #trains main model if needed
     if not already_trained or not success:
+        data = read_data(path, times, read_range, base_model) # gets data with base model helping
         form_mlp(data)
         mlp = pickle.load(open('mlpmodel.sav', 'rb'))
     
     return base_model, mlp
 
-def main() :
-    random.seed(None)
-    
-    already_trained = True
-
-    times = [
-        (150,515),
-        (1285,1575),
-        (1987,2010),
-        (2315,2385),
-        (2930,3210),
-        (3500,3905),
-        (4340,4600),
-        (5090,5287)
-    ]
-
-    path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data.json"
-    read_range = 3000
-    base_model, mlp = form_models(path, read_range, times, already_trained)
-    
-    read_range = 6000
-    test_arr = read_data(path, times, read_range, base_model)
-    X = np.delete(test_arr, num_features, 1)
-    y = test_arr[:,num_features]
-
-    test_accuracy(mlp, X[3000:6000], y[3000:6000])
-    plot_model(X,y, mlp)
-    plot_data(test_arr, 0, 6000)
-
+# plots average rssi
 def plot_data(data, lower, upper) :
     y = [data[i][0] for i in range(lower,upper)]
     baseline = [-80 for i in range(lower,upper)]
@@ -365,6 +317,7 @@ def plot_data(data, lower, upper) :
     ax.xaxis.set_ticks(np.arange(start, end, 120))
     plt.show()
 
+# plots model vs actual interaction data
 def plot_model(X,y, model) :
     x = [i for i in range(len(y))]
     predictions = model.predict(X) 
@@ -380,4 +333,41 @@ def plot_model(X,y, model) :
     ax.xaxis.set_ticks(np.arange(start, end, 120))
     plt.show()
 
-main()
+# main function
+def run_program() :
+    random.seed(None)
+    
+    already_trained = True
+
+    # interaction times
+    times = [
+        (150,515),
+        (1285,1575),
+        (1987,2010),
+        (2315,2385),
+        (2930,3210),
+        (3500,3905),
+        (4340,4600),
+        (5090,5287)
+    ]
+
+    # file read data
+    path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data.json"
+    read_range = 3000
+
+    # gets models -> base model is used to help mlp model which is the main one used
+    base_model, mlp = form_models(path, read_range, times, already_trained)
+    
+    #gets test data : for now 0-3000 is data used for training and 3000-6000 is fresh test data
+    read_range = 6000
+    test_arr = read_data(path, times, read_range, base_model)
+    X = test_arr[:,:num_features+1]
+    y = test_arr[:,num_features+1]
+
+    # tests model and plots data
+    test_accuracy(mlp, X[3000:6000], y[3000:6000])
+    plot_model(X,y, mlp)
+    plot_data(test_arr, 0, 6000)
+
+if __name__ == '__main__' :
+    run_program()
