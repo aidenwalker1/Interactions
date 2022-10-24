@@ -112,11 +112,6 @@ def read_watch_data(bio_file, times, read_range = 10000) :
 
     attribute_list = [0] * (num_features + 1)
 
-    below_85 = [0] * 15
-    total_below_85 = 0
-
-    #calculated data
-    roc = 0 #rate of change
     rssi_avg = 0
     stddev = 0
     
@@ -140,16 +135,12 @@ def read_watch_data(bio_file, times, read_range = 10000) :
         rssi_avg_minute[i % 20] = rssi_current
         deviations[i % 5] = rssi_current
         rate_of_change[i % 3] = rssi_current
-        below_85[i % 10] = 1 if rssi_current < -85 else 0
-        total_below_85 = below_85.count(1)
 
         #calculates average, rate of change, standard deviation
         rssi_avg = calculate_avg(rssi_avg_minute)
 
         #update times based on current rssi
         (time_60, time_70, time_80) = update_times(rssi_avg, (time_60, time_70, time_80))
-        
-        roc = calculate_roc(rate_of_change)
 
         stddev = calculate_stddev(deviations, rssi_avg)
 
@@ -157,7 +148,7 @@ def read_watch_data(bio_file, times, read_range = 10000) :
         interaction = interaction_happened(times, i)
         
         #fills attribute list with fields
-        fill_attributes(attribute_list, rssi_current,rssi_avg, stddev, time_60, time_70, time_80, roc, interaction)
+        fill_attributes(attribute_list,rssi_avg, stddev, time_60, time_70, time_80, interaction)
 
         #saves current attribute list
         bio_test.append(attribute_list.copy())
@@ -189,14 +180,12 @@ def update_times(rssi_current, times) :
     return (time_60, time_70, time_80)
 
 #fills list with given attributes
-def fill_attributes(attribute_list, rssi_current,rssi_avg, stddev, time_60, time_70, time_80, roc, interaction) :
+def fill_attributes(attribute_list,rssi_avg, stddev, time_60, time_70, time_80, interaction) :
     attribute_list[0] = rssi_avg
     attribute_list[1] = stddev
     attribute_list[2] = time_60
     attribute_list[3] = time_70
     attribute_list[4] = time_80
-    #attribute_list[5] = roc
-    #attribute_list[6] = rssi_avg
 
     attribute_list[num_features] = interaction
 
@@ -230,8 +219,6 @@ def calculate_stddev(deviations, rssi_avg):
 #detects if current time is in given interaction times
 def interaction_happened(times, time) :
     for cur_time in times: 
-        # if 0 < cur_time[0] - time < 5 or 0 < time - cur_time[1] < 5 :
-        #     return 0
         if cur_time[0] <= time <= cur_time[1] :
             return 1
 
@@ -247,17 +234,13 @@ def train_data(bio_train) :
     y = arr[:,num_features]
     X, y = sm.fit_resample(X,y)
 
-    nb = naive_bayes.GaussianNB()
-    cl = cluster.KMeans()
     clf = ensemble.AdaBoostClassifier()
-    #clf = ensemble.RandomForestClassifier()
     parameters = {
               'n_estimators':[10,25,50,100, 200],
               'learning_rate':[0.0001, 0.005, 0.01,0.1]
               }
     
     grid = GridSearchCV(clf, parameters, refit = True, verbose = 3,n_jobs=-1,scoring="accuracy") 
-    #print(grid.best_params_)
     grid.fit(X, y)
     
     return grid
@@ -284,28 +267,64 @@ def form_initial_model(path, times, read_range) :
     pickle.dump(model, open('model.sav', 'wb'))
 
 def form_mlp(data) :
-    arr = np.array(data)
-    #X = arr[:,0:num_features]
-    X = np.delete(arr, num_features, 1)
-    y = arr[:,num_features]
+    X = np.delete(data, num_features, 1)
+    y = data[:,num_features]
+
     mlp = MLPClassifier(hidden_layer_sizes=(16,8,4),activation='tanh',batch_size=64,solver='adam', max_iter=30000,tol=1e-8)
-    parameters = {
-              'hidden_layer_sizes':[(10,5,2), (16,8,4), (32,16,8), (137,49,7)],
-              'activation':['tanh', 'relu', 'logistic'],
-              'batch_size':[64, 128, 256]
-              }
     
-    #grid = GridSearchCV(mlp, parameters, refit = True, verbose = 3,n_jobs=-1,scoring="recall") 
-    #mlp = ensemble.AdaBoostClassifier(n_estimators=100, learning_rate=0.5)
     mlp.fit(X,y)
-    return mlp
+    pickle.dump(mlp, open('mlpmodel.sav', 'wb'))
 
+def read_data(path, times, read_range, model) :
+    bio_file = open(path, "r")
+    data = read_sensor_data(bio_file, times, read_range)
+    bio_file.close()
 
+    arr = np.array(data)
+    preds = model.predict(arr[:,0:num_features])
+    newarr = []
+
+    for i in range(0, len(preds)) :
+        out = preds[i]
+        newarr.append([out])
+
+    arr = np.append(arr, newarr, axis=1)
+
+    return arr
+
+def form_models(path, read_range, times, already_trained) :
+    success = True
+    base_model = None
+    mlp = None
+
+    try :
+        base_model = pickle.load(open('model.sav', 'rb'))
+    except :
+        success = False
+
+    if not already_trained or not success:
+        form_initial_model(path, times, read_range)
+        base_model = pickle.load(open('model.sav', 'rb'))
+
+    data = read_data(path, times, read_range, base_model)
+    data = np.array(data)
+    success = True
+
+    try :
+        mlp = pickle.load(open('mlpmodel.sav', 'rb'))
+    except :
+        success = False
+
+    if not already_trained or not success:
+        form_mlp(data)
+        mlp = pickle.load(open('mlpmodel.sav', 'rb'))
+    
+    return base_model, mlp
 
 def main() :
     random.seed(None)
     
-    already_trained = False
+    already_trained = True
 
     times = [
         (150,515),
@@ -317,68 +336,19 @@ def main() :
         (4340,4600),
         (5090,5287)
     ]
+
     path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data.json"
     read_range = 3000
-
-    #if want to completely retrain
-    if not already_trained :
-        form_initial_model(path, times, read_range)
+    base_model, mlp = form_models(path, read_range, times, already_trained)
     
-    bio_file = open(path, "r")
+    read_range = 6000
+    test_arr = read_data(path, times, read_range, base_model)
+    X = np.delete(test_arr, num_features, 1)
+    y = test_arr[:,num_features]
 
-    model = pickle.load(open('model.sav', 'rb'))
-    
-    data = read_sensor_data(bio_file, times, read_range)
-    #plot_data(data,0, 6000)
-    arr = np.array(data)
-    preds = model.predict(arr[:,0:num_features])
-    newarr = []
-
-    for i in range(0, len(preds)) :
-        out = preds[i]
-        newarr.append([out])
-
-    arr = np.append(arr, newarr, axis=1)
-
-    mlp = form_mlp(arr)
-
-    #opens new file to test data
-    test_path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data.json"
-
-    test_read_range = 6000
-
-    #in case want to test accuracy on new data, for first 2000 seconds
-    test_times = [
-        (150,515),
-        (1285,1575),
-        (1987,2010),
-        (2315,2385),
-        (2930,3210),
-        (3500,3905),
-        (4340,4600),
-        (5090,5287)
-    ]
-
-    bio_file = open(test_path, "r")
-
-    t = read_sensor_data(bio_file, test_times, test_read_range)
-
-    arr = np.array(t)
-    preds = model.predict(arr[:,0:num_features])
-    newarr = []
-
-    for i in range(0, len(preds)) :
-        out = preds[i]
-        newarr.append([out])
-
-    arr = np.append(arr, newarr, axis=1)
-    X = arr[:,0:num_features]
-    X = np.delete(arr, num_features, 1)
-    y = arr[:,num_features]
-
-    test_accuracy(mlp, X, y)
+    test_accuracy(mlp, X[3000:6000], y[3000:6000])
     plot_model(X,y, mlp)
-    #plot_data(t,0, 2000)
+    plot_data(test_arr, 0, 6000)
 
 def plot_data(data, lower, upper) :
     y = [data[i][0] for i in range(lower,upper)]
@@ -392,13 +362,12 @@ def plot_data(data, lower, upper) :
     plt.ylabel("Bluetooth RSSI distance")
     plt.title("Distance of 2 watch users")
     start, end = ax.get_xlim()
-    ax.xaxis.set_ticks(np.arange(start, end, 25))
+    ax.xaxis.set_ticks(np.arange(start, end, 120))
     plt.show()
 
 def plot_model(X,y, model) :
     x = [i for i in range(len(y))]
-    predictions = model.predict(X)
-    predictions = clean_predictions(predictions)  
+    predictions = model.predict(X) 
     correct_outputs = [y[i] for i in range (len(y))]
 
     fig, ax = plt.subplots()
@@ -411,87 +380,4 @@ def plot_model(X,y, model) :
     ax.xaxis.set_ticks(np.arange(start, end, 120))
     plt.show()
 
-def test_model(model, test_arr, neg_recon) :
-    time_since_interaction = 0
-    can_prompt = False
-
-    #goes through test data
-    for i in range(0,int(len(test_arr) / 8)) :
-        #gets 8 seconds of data and predicts if interaction occured
-        X = test_arr[i*8:(i*8)+8,0:num_features]
-        pred = model.predict(X)
-        negs = neg_recon.predict(X)
-
-        total = 0
-
-        #goes through and sums interaction values
-        for elem in pred:  
-            if elem >= 0 :
-                total += 1
-
-        #checks for false negatives
-        for elem in negs :
-            if elem >= 1 :
-                total += 1
-        
-        #if any second had an interaction
-        if total >= 1:
-            time_since_interaction = 0
-            can_prompt = True
-        else:
-            time_since_interaction = time_since_interaction + 8
-
-            #prompts user after 16 seconds
-            if can_prompt and time_since_interaction >= 20 :
-                print('interaction at ' + str(i*8))
-                can_prompt = False
-
-def clean_predictions(predictions) :
-    length = len(predictions)
-    cleaned = []
-    last_five = [0] * 5
-    for i in range(length) :
-        last_five[i % 5] = predictions[i]
-        if predictions[i] == 1 :
-            cleaned.append(1)
-        else :
-            count = last_five.count(1)
-            if (count > 1) :
-                cleaned.append(1)
-            else :
-                cleaned.append(0)
-    
-
-    
-    return cleaned
-
 main()
-
-
-
-    # times = [
-    #             (13,47),
-    #             (113,127),
-    #             (145,159),
-    #             (621,637),
-    #             (1521,1597),
-    #             (1750,2867),
-    #             (6090,2919),
-    #             (6127,6183),
-    #             (6391,6417),
-    #             (7195,7300),
-    #             (7422,7441),
-    #             (7746,7764),
-    #             (7917,8000),
-    #             (8090,8166),
-    #             (9100,9200),
-    #             (10430,10573),
-    #             (10820,11216),
-    #             (11226,11297),
-    #             (11332,11446),
-    #             (11447,11595),
-    #             (11853,11896),
-    #             (12916,12951),
-    #             (14019,14099),
-    #             (14148,14200)
-    #     ]
