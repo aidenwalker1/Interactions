@@ -249,13 +249,9 @@ def form_mlp(data) :
     
     mlp.fit(X,y)
     pickle.dump(mlp, open('mlpmodel.sav', 'wb'))
+    return mlp
 
-# reads data from file and appends base model predictions
-def read_data(path, times, read_range, model) :
-    bio_file = open(path, "r")
-    data = read_sensor_data(bio_file, times, read_range)
-    bio_file.close()
-
+def append_preds(data, model) :
     arr = np.array(data)
     preds = model.predict(arr[:,0:num_features])
     newarr = []
@@ -267,6 +263,14 @@ def read_data(path, times, read_range, model) :
     arr = np.insert(arr, num_features,newarr, axis=1)
 
     return arr
+
+# reads data from file and appends base model predictions
+def read_data(path, times, read_range, model) :
+    bio_file = open(path, "r")
+    data = read_sensor_data(bio_file, times, read_range)
+    bio_file.close()
+
+    return append_preds(data, model)
 
 # gets both main model and model used to help it
 def form_models(path, read_range, times, already_trained) :
@@ -314,7 +318,7 @@ def plot_data(data, lower, upper) :
     plt.ylabel("Bluetooth RSSI distance")
     plt.title("Distance of 2 watch users")
     start, end = ax.get_xlim()
-    ax.xaxis.set_ticks(np.arange(start, end, 120))
+    ax.xaxis.set_ticks(np.arange(start, end, 20))
     plt.show()
 
 # plots model vs actual interaction data
@@ -330,7 +334,7 @@ def plot_model(X,y, model) :
     plt.ylabel("Interaction occured")
     plt.title("ML Model vs Actual Data")
     start, end = ax.get_xlim()
-    ax.xaxis.set_ticks(np.arange(start, end, 120))
+    ax.xaxis.set_ticks(np.arange(start, end, 30))
     plt.show()
 
 # main function
@@ -353,21 +357,69 @@ def run_program() :
 
     # file read data
     path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data.json"
-    read_range = 3000
+    read_range = 6000
 
     # gets models -> base model is used to help mlp model which is the main one used
-    base_model, mlp = form_models(path, read_range, times, already_trained)
+    #base_model, mlp = form_models(path, read_range, times, already_trained)
     
     #gets test data : for now 0-3000 is data used for training and 3000-6000 is fresh test data
-    read_range = 6000
-    test_arr = read_data(path, times, read_range, base_model)
-    X = test_arr[:,:num_features+1]
-    y = test_arr[:,num_features+1]
+    test_read_range = 3600
+    test_times = [
+        (45,65),
+        (270,290),
+        (435,465),
+        (710,727),
+        (925,1295),
+        (1590,1617),
+        (2020,2050),
+        (2415,2685),
+        (3010,3350),
+        (3515,3565)
+    ]
+
+
+    test_path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data1.json"
+    bio_file = open(path, "r")
+
+    data1 = read_sensor_data(bio_file, times, read_range)
+    bio_file.close()
+    bio_file = open(test_path, "r")
+    data2 = read_sensor_data(bio_file, test_times, test_read_range)
+
+    data1 = np.array(data1)
+    data2 = np.array(data2)
+
+    data = np.append(data1,data2,axis=0)
+    base_mod = train_base_model(data)
+    test_arr = append_preds(data, base_mod)
+    mlp = form_mlp(test_arr)
+
+    test_read_range = 3000
+    test_times = [
+        (140,180),
+        (387,575),
+        (825,870),
+        (1035,1160),
+        (1375,1420),
+        (1625,1880),
+        (2160,2355),
+        (2545,2605),
+        (2820,2957)
+    ]
+
+
+    test_path = "C:\\Users\\Aiden\\Downloads\\sensordata\\sensor_data2.json"
+    new_test_arr = read_data(test_path, test_times, test_read_range, base_mod)
+
+    #combo = np.add()
+
+    X = new_test_arr[:,:num_features+1]
+    y = new_test_arr[:,num_features+1]
 
     # tests model and plots data
-    test_accuracy(mlp, X[3000:6000], y[3000:6000])
+    test_accuracy(mlp, X, y)
     plot_model(X,y, mlp)
-    plot_data(test_arr, 0, 6000)
+    plot_data(new_test_arr, 0, 3000)
 
 if __name__ == '__main__' :
     run_program()
