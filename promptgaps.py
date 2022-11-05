@@ -51,6 +51,7 @@ def read_data(path) :
     timeout = None
     schedule_time = None
     i = 1
+    global intervals
 
     while st != '' :
         if 'Proximity interaction ended:' in st:
@@ -65,7 +66,6 @@ def read_data(path) :
                 if current_day == None:
                     current_day = dt
                 elif current_day.day != dt.day :
-                    global intervals
                     intervals = create_interval()
                     current_day = dt
                     timeout = None
@@ -76,30 +76,43 @@ def read_data(path) :
                         i += 1
 
                         if 'scheduled prompt' not in st or schedule_time != None:
-                            print("ERROR 1 at line " + str(i))
-                            reset_interval(dt)
+                            print("ERROR 1: prompt should have occured at line " + str(i))
+                            reset_interval(dt, 0)
                             
                         else :
                             st = st[:st.index('|') - 1]
                             schedule_time = datetime.strptime(st, "%Y-%m-%d %H:%M:%S")
 
         elif 'prompting user' in st :
-            if schedule_time == None :
-                print("ERROR 2 at line " + str(i))
+            if schedule_time == None :    
+                t = st[:st.index('|') - 1]
+                t = datetime.strptime(t, "%Y-%m-%d %H:%M:%S")
+
+                if current_day == None:
+                    current_day = t
+                elif current_day.day != t.day :
+                    intervals = create_interval()
+                    current_day = t
+                
+                if in_intervals(t) :
+                    reset_interval(t, 1)
+                else :
+                    print("ERROR 2: prompt has already been shown in interval at line " + str(i))
             else :
                 cur_time = st[:st.index('|') - 1]
                 cur_time = datetime.strptime(cur_time, "%Y-%m-%d %H:%M:%S")
 
-                if (not (58 < (cur_time - schedule_time).total_seconds() < 62)) :
-                    print("ERROR 3 at line " + str(i))
+                if not (58 < (cur_time - schedule_time).total_seconds() < 62) :
+                    print("ERROR 3: prompt not shown at right time at line " + str(i))
             timeout = st[st.index('time:')+6:-1]
             timeout = datetime.strptime(timeout, "%Y-%m-%d %H:%M:%S")
             schedule_time = None
             
         st = file.readline()
         i +=1
-    if schedule_time == None :
-        print("ERROR 4")
+        
+    if schedule_time != None :
+        print("ERROR 4: prompt should have been shown but data collection ended")
     file.close()
 
 def in_intervals(time: datetime) :
@@ -126,16 +139,16 @@ def in_intervals(time: datetime) :
                 return False
     return False
 
-def reset_interval(time : datetime) :
+def reset_interval(time : datetime, val) :
     for current_interval in intervals :
         if time.hour == current_interval[0].hour :
             if time.minute >= current_interval[0].minute :
-                current_interval[2] = 0
+                current_interval[2] = val
         elif time.hour == current_interval[1].hour :
             if time.minute <= current_interval[1].minute :
-                current_interval[2] = 0
+                current_interval[2] = val
         elif time.hour > current_interval[0].hour and time.hour < current_interval[1].hour :
-            current_interval[2] = 0
+            current_interval[2] = val
 def main() :
     path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH02A2w.system_logs.log"
 
