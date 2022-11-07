@@ -141,12 +141,9 @@ def fill_features(rotation, acceleration) -> list:
 #plots acceleration + rotation data
 def plot_data(data, lower, upper) :
     #gets acceleration and rotation
-    min_len = min(len(night_times), len(day_times))
-    night_times = night_times[:min_len]
-    day_times = day_times[:min_len]
-    y1 = [data[i][1] for i in range(min_len)]
-    y2 = [data[i][0] for i in range(min_len)]
-    x = [i for i in range(min_len)]
+    y1 = [data[i][1] for i in range(lower, upper)]
+    y2 = [data[i][0] for i in range(lower, upper)]
+    x = [i for i in range(lower, upper)]
 
     fig, ax = plt.subplots()
 
@@ -185,7 +182,7 @@ def alert_user(data) -> bool:
 def was_watch_worn(data) -> bool :
     total = 0
     for i in range(0,300) :
-        if data[i][0] + data[i][1] < 0.05 :
+        if data[i][0] < 0.05 :
             total += 1
     return total < 295
 
@@ -233,8 +230,9 @@ def run_program() :
     night_times = find_when_watch_worn(night_data)
     day_times = find_when_watch_worn(day_data)
     plot_times(night_times, day_times)
-    plot_data(day_data, 0, 86400)
-    plot_data(night_data, 0, 86400)
+    min_len = min(len(day_data), len(night_data))
+    plot_data(day_data, 0, min_len)
+    plot_data(night_data, 0, min_len)
 
 if __name__ == '__main__' :
     run_program()
