@@ -1,15 +1,6 @@
 from datetime import datetime
-#search for:
-#proximity ended
-#timestart - timeend -> save day as last day to reset when day changes
-#duration = x
 
-#check duration > 300
-#check: timeend in trigger time
-#check time after timeout
-
-#if true, get next line and verify prompted, get timeout
-
+#time class, takes in hours and minute to compare interval
 class hourtime :
     def __init__(self, hour, minute) -> None:
         self.hour = hour
@@ -110,7 +101,7 @@ def read_data(path) :
             
         st = file.readline()
         i +=1
-        
+
     if schedule_time != None :
         print("ERROR 4: prompt should have been shown but data collection ended")
     file.close()
