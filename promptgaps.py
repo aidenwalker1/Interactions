@@ -41,6 +41,8 @@ def read_data(path) :
     current_day = None
     timeout = None
     schedule_time = None
+    interaction_confirmed = False
+    random_time = None
     i = 1
     global intervals
 
@@ -50,7 +52,8 @@ def read_data(path) :
             duration = file.readline()
             duration = float(duration[duration.index('=') + 2:duration.index('s')])
             i += 2
-            if duration > 300 :
+            if duration > 330 or interaction_confirmed :
+                interaction_confirmed = False
                 time = time_range[time_range.index('- ') + 2:-1]
                 dt = datetime.strptime(time, "%Y-%m-%d %H:%M:%S")
 
@@ -94,11 +97,20 @@ def read_data(path) :
                 cur_time = datetime.strptime(cur_time, "%Y-%m-%d %H:%M:%S")
 
                 if not (58 < (cur_time - schedule_time).total_seconds() < 62) :
-                    print("ERROR 3: prompt not shown at right time at line " + str(i))
+                    if random_time != None :
+                        if not (-2 < (cur_time - random_time).total_seconds() < 2) :
+                            print("ERROR 3: prompt not shown at right time at line " + str(i))
+                        random_time = None
+                    else :
+                        print("ERROR 3: prompt not shown at right time at line " + str(i))
             timeout = st[st.index('time:')+6:-1]
             timeout = datetime.strptime(timeout, "%Y-%m-%d %H:%M:%S")
             schedule_time = None
-            
+        elif 'proximity interaction start' in st :
+            interaction_confirmed = True
+        elif ' Scheduled random' in st:
+            random_time = st[st.index('for ') + 4:-1]
+            random_time = datetime.strptime(random_time, "%Y-%m-%d %H:%M:%S")
         st = file.readline()
         i +=1
 
@@ -141,7 +153,7 @@ def reset_interval(time : datetime, val) :
         elif time.hour > current_interval[0].hour and time.hour < current_interval[1].hour :
             current_interval[2] = val
 def main() :
-    path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH02A2w.system_logs.log"
+    path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH03A2w.system_logs.log"
 
     read_data(path)
 
