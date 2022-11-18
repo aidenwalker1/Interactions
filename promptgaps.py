@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 
 #time class, takes in hours and minute to compare interval
 class hourtime :
@@ -32,7 +33,7 @@ def create_interval() :
 
 intervals = create_interval()
 
-def read_data(path) :
+def read_data(path, prompts) :
     file = open(path, 'r')
 
     st = ''
@@ -43,6 +44,7 @@ def read_data(path) :
     schedule_time = None
     interaction_confirmed = False
     random_time = None
+    prompt_group = None
     i = 1
     global intervals
 
@@ -89,9 +91,14 @@ def read_data(path) :
                     current_day = t
                 
                 if in_intervals(t) :
-                    reset_interval(t, 1)
+                    if did_respond(prompt_group, prompts):
+                        reset_interval(t, 1)
+                    else :
+                        reset_interval(t, 0)
                 else :
-                    print("ERROR 2: prompt has already been shown in interval at line " + str(i))
+                    if did_respond(prompt_group, prompts):
+                        if search_interval(t) == 1 :
+                            print("ERROR 2: prompt has already been shown in interval at line " + str(i))
             else :
                 cur_time = st[:st.index('|') - 1]
                 cur_time = datetime.strptime(cur_time, "%Y-%m-%d %H:%M:%S")
@@ -111,12 +118,26 @@ def read_data(path) :
         elif ' Scheduled random' in st:
             random_time = st[st.index('for ') + 4:-1]
             random_time = datetime.strptime(random_time, "%Y-%m-%d %H:%M:%S")
+        elif 'Showing Prompt Group' in st:
+            prompt_group = st[st.index('Group') + 6:-1]
         st = file.readline()
         i +=1
 
     if schedule_time != None :
         print("ERROR 4: prompt should have been shown but data collection ended")
     file.close()
+
+def search_interval(time: datetime) :
+    for current_interval in intervals :
+        if time.hour == current_interval[0].hour :
+            if time.minute >= current_interval[0].minute :
+                return current_interval[2]
+        elif time.hour == current_interval[1].hour :
+            if time.minute <= current_interval[1].minute :
+                return current_interval[2]
+        elif time.hour > current_interval[0].hour and time.hour < current_interval[1].hour :
+            return current_interval[2]
+    return -1
 
 def in_intervals(time: datetime) :
     for current_interval in intervals :
@@ -142,6 +163,18 @@ def in_intervals(time: datetime) :
                 return False
     return False
 
+def read_prompts(path) :
+    f = open(path, 'r')
+    data = json.load(f)
+    f.close()
+    return data
+
+def did_respond(id, data) :
+    for prompt in data :
+        if prompt['identifier'] == id :
+            return prompt['prompts'][0]['chosen_response'] != None
+    return False
+
 def reset_interval(time : datetime, val) :
     for current_interval in intervals :
         if time.hour == current_interval[0].hour :
@@ -153,9 +186,10 @@ def reset_interval(time : datetime, val) :
         elif time.hour > current_interval[0].hour and time.hour < current_interval[1].hour :
             current_interval[2] = val
 def main() :
-    path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH03A2w.system_logs.log"
-
-    read_data(path)
+    path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH04A2w.system_logs.log"
+    prompt_path = "C:\\Users\\Aiden\\Downloads\\H01\\H01\\dyadH04A2w.prompt_groups.json"
+    prompts = read_prompts(prompt_path)
+    read_data(path, prompts)
 
 if __name__ == '__main__' :
     main()
