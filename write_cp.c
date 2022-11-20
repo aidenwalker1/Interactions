@@ -27,15 +27,14 @@ int my_write(int fd, char buf[], int nbytes)
             // gets oft data
             OFT *op = running->fd[fd];
             MINODE *mip = op->minodeptr;
-            int offset = op->offset;
 
             // runs while want more bytes
             while (nbytes)
             {
                 // gets block
-                int lbk = offset / BLKSIZE;
-                int start = offset % BLKSIZE;
-                int blk = mip->INODE.i_block[lbk];
+                int lbk = op->offset / BLKSIZE;
+                int start = op->offset % BLKSIZE;
+                int blk = map(lbk, mip);
 
                 // gets block data
                 char kbuf[1024];
@@ -48,43 +47,29 @@ int my_write(int fd, char buf[], int nbytes)
                 // find min of remain, nbytes
                 int min = remain;
 
-                if (min > nbytes) {
+                if (min > nbytes)
+                {
                     min = nbytes;
                 }
 
+                // copies data to cp buf
                 memcpy(cp, buf, min);
-                offset += min;
+
+                // updates offsets
+                op->offset += min;
                 buf += min;
                 cp += min;
                 count += min;
                 nbytes -= min;
-                
-                if (offset > mip->INODE.i_size)
+
+                if (op->offset > mip->INODE.i_size)
                 {
                     mip->INODE.i_size += min;
                 }
-                else 
+                else
                 {
-                    mip->INODE.i_size = offset;
+                    mip->INODE.i_size = op->offset;
                 }
-
-                // writes input to buf
-                // while (remain)
-                // {
-                //     *cp++ = *buf++;
-                //     offset++;
-                //     count++;
-                //     remain--;
-                //     nbytes--;
-                //     if (offset > mip->INODE.i_size)
-                //     {
-                //         mip->INODE.i_size++;
-                //     }
-                //     if (nbytes <= 0)
-                //     {
-                //         break;
-                //     }
-                // }
 
                 // writes buf to disk
                 put_block(mip->dev, blk, kbuf);
@@ -132,16 +117,23 @@ int my_cp(char *pathname1, char *pathname2)
     MINODE *mip = iget(dev1, ino1);
 
     char buf[1024];
-    memset(buf, 0, 1024);
+    int rd = -1;
 
-    // reads data from file1, writes to file2
-    my_read(fd1, buf, mip->INODE.i_size);
-    my_write(fd2, buf, mip->INODE.i_size);
+    // run while stuff to read
+    while (rd != 0)
+    {
+        // resets buf and reads
+        memset(buf, 0, 1024);
+        rd = my_read(fd1, buf, 1024);
+
+        // writes buf
+        my_write(fd2, buf, rd);
+    }
 
     // closes both files
     my_close(fd1);
     my_close(fd2);
-    
+
     iput(mip);
     return 1;
 }
